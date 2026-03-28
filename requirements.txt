@@ -1,0 +1,42 @@
+# Core Dependencies
+nicegui>=3.9.0
+fastapi>=0.129.0
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.16.0
+scikit-learn>=1.7.0
+xgboost>=3.2.0
+sentence-transformers>=5.3.0
+openai>=1.0.0
+python-docx>=1.0.0
+joblib>=1.5.0
+
+# Image RAG Dependencies
+faiss-cpu>=1.7.0
+Pillow>=10.0.0
+
+# Additional Dependencies
+httpx>=0.28.0
+pydantic>=2.12.0
+pydantic-core>=2.41.0
+uvicorn>=0.41.0
+python-multipart>=0.0.22
+aiofiles>=25.1.0
+aiohttp>=3.13.0
+watchfiles>=1.1.1
+websockets>=16.0
+httptools>=0.7.1
+
+# Transformers and related
+transformers>=5.4.0
+torch>=2.10.0
+huggingface-hub>=1.5.0
+tokenizers<=0.23.0,>=0.22.0
+safetensors>=0.4.3
+
+# Text processing
+regex>=2026.2.28
+markdown2>=2.5.5
+
+# Optional: GPU-accelerated FAISS (uncomment if you have GPU)
+# faiss-gpu>=1.7.0
