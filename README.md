@@ -2,6 +2,8 @@
 
 An advanced AI-powered medical examination question generation and difficulty prediction platform with integrated Image RAG capabilities.
 
+![MAID Platform UI](MAID-UI.png)
+
 ## Features
 
 ### 1. **Question Generation System**
