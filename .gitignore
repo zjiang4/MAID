@@ -21,3 +21,7 @@ medseek-智能试题工作台---检验专版/
 
 .DS_Store
 Thumbs.db
+
+maid_server.log
+maid_server_error.log
+maid_server.pid

@@ -94,6 +94,19 @@ python multi_agent_dev.py
 
 The application will be available at http://localhost:8080
 
+#### Windows One-Click Start
+
+Double-click `start_maid_windows.bat`. The launcher uses the default `python`
+environment from `PATH`, enables pip when necessary, and installs missing
+dependencies from the official PyPI index. It then starts MAID in a hidden
+background process, waits for port 8080 to become ready, and opens the UI in the
+default browser.
+
+Runtime output is written to `maid_server.log` and errors are written to
+`maid_server_error.log`. The background process ID is stored in
+`maid_server.pid`. Re-running the launcher while port 8080 is already active
+opens the existing UI instead of starting another server.
+
 ### Configuring AI Models
 
 1. Navigate to **"Model Configuration"** section
