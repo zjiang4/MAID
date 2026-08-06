@@ -167,7 +167,10 @@ in the repository.
 
 ### Custom Syllabus Upload
 
-Instead of using the built-in medical curriculum tree, you can upload your own syllabus outline in **Markdown format**.
+The built-in curriculum is an English USMLE Step 1 syllabus organized by
+foundational sciences, organ systems, biostatistics, epidemiology, and ethics.
+You can replace it for the current session by uploading your own syllabus
+outline in **Markdown format**.
 
 #### Markdown Format
 
@@ -221,7 +224,7 @@ Example:
 3. Drag and drop your `.md` file (or click to browse).
 4. The syllabus tree will update automatically to reflect your custom outline.
 5. Select items and set question counts as usual.
-6. Click **"Reset to Default"** to revert to the built-in medical curriculum.
+6. Click **"Reset to Default"** to revert to the built-in USMLE Step 1 curriculum.
 
 ### Difficulty Prediction
 
