@@ -73,6 +73,7 @@ The application will start and display a URL (usually http://localhost:8080) in 
 - `xgboost>=3.2.0` - Gradient boosting
 - `sentence-transformers>=5.3.0` - Text embeddings
 - `openai>=1.0.0` - OpenAI API client
+- `langchain-nvidia-ai-endpoints>=1.0.0` - NVIDIA-hosted model client
 - `python-docx>=1.0.0` - DOCX file generation
 
 ### Image RAG Dependencies (NEW!)
@@ -98,13 +99,31 @@ The application will be available at http://localhost:8080
 1. Navigate to **"Model Configuration"** section
 2. Click **"API and Model Settings"**
 3. Enter model details:
-   - **Model Name**: Display name (e.g., "GPT-4")
+   - **Display Name**: Name shown in role selectors (e.g., "GPT-4")
+   - **Provider**: `openai` or `nvidia`
+   - **Model ID**: Provider model identifier (e.g., `openai/gpt-oss-120b`)
    - **API Key**: Your OpenAI API key
    - **Base URL**: API endpoint (if using a custom endpoint)
    - **Model Type**: Select "Text Output", "Image Generation", or "Multimodal"
 4. Click **"Save Configuration"**
 
 Alternatively, load preset configurations by entering the preset password.
+
+### NVIDIA Demo Models
+
+Set the NVIDIA credential before starting MAID. PowerShell example:
+
+```powershell
+$env:NVIDIA_API_KEY="nvapi-your-key-here"
+python multi_agent_dev.py
+```
+
+In **Model Configuration**, click **Fill with Demo LLMs**. MAID tests every
+bundled NVIDIA candidate for the current session, keeps only models that return
+a valid response, and randomly assigns the healthy models to Writer, Reviewers,
+and Editor. A failed or unavailable model does not prevent the other models from
+being loaded. The API key is read from the process environment and is not stored
+in the repository.
 
 ### Question Generation Workflow
 
@@ -471,4 +490,3 @@ For issues or questions:
 - **FAISS** for efficient similarity search
 - **OpenAI** for providing powerful AI models
 - Medical education community for curriculum standards
-

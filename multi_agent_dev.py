@@ -12,6 +12,7 @@ import functools
 import html
 import io
 import joblib
+import os
 import random
 import re
 import time
@@ -40,7 +41,12 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
-from openai import AsyncOpenAI, OpenAI
+from model_providers import (
+    AIModel,
+    NVIDIA_DEMO_MODELS,
+    assign_healthy_text_models,
+    check_nvidia_demo_models,
+)
 
 # --- Image RAG Module ---
 try:
@@ -673,61 +679,13 @@ def _perform_training(X_train: Any, y_train: Any, model_config: dict) -> Any:
 # ==============================================================================
 # MCQ Development Module: Core Classes
 # ==============================================================================
-class AIModel:
-    def __init__(self, name: str, model_name: str, api_key: str, base_url: Optional[str] = None, model_type: str = 'Text Output'):
-        if not all([name, model_name, api_key]):
-            raise ValueError("Model name, model_name, and API key are all required.")
-        self.name = name
-        self.model_name = model_name
-        self.api_key = api_key
-        self.base_url = base_url.strip() if base_url else None
-        self.model_type = model_type
-        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-        self.image_client = self.client
-
-    async def call_ai_model(self, system_prompt: str, user_prompt: str, json_mode: bool = False):
-        try:
-            kwargs = {"model": self.model_name, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]}
-            if json_mode:
-                kwargs["response_format"] = {"type": "json_object"}
-            response = await self.async_client.chat.completions.create(**kwargs)
-            content = response.choices[0].message.content or ""
-            usage = response.usage
-            usage_dict = {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            return content, usage_dict
-        except Exception as e:
-            error_msg = f"Error calling model '{self.name}': {e}"
-            print(error_msg)
-            return f"Error: {error_msg}", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-    async def call_ai_model_stream(self, system_prompt: str, user_prompt: str):
-        try:
-            stream = await self.async_client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                stream=True
-            )
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-        except Exception as e:
-            yield f"Error: {e}"
-
-
 class MCQDevelopmentSystem:
     def __init__(self, models_config_list: List[Dict]):
         self.models = []
         self.history: List[Dict] = []
         for c in models_config_list:
             try:
-                self.models.append(AIModel(
-                    name=c.get('name', 'unknown'),
-                    model_name=c.get('model_name', c.get('name', 'unknown')),
-                    api_key=c.get('api_key', ''),
-                    base_url=c.get('base_url'),
-                    model_type=c.get('model_type', 'Text Output')
-                ))
+                self.models.append(AIModel.from_config(c))
             except Exception as e:
                 print(f"Warning: Skipping invalid model config '{c.get('name', 'N/A')}': {e}")
 
@@ -2317,16 +2275,16 @@ def main_page():
                             sel.options = choices
                             sel.value = cur if cur in choices else (choices[0] if choices else None)
                             sel.update()
-                    def save_model_config(name_in, key_in, url_in, type_sel, model_name_in):
+                    def save_model_config(name_in, key_in, url_in, type_sel, model_id_in, provider_sel):
                         name, key = name_in.value.strip(), key_in.value
-                        mn = model_name_in.value.strip() or name
+                        mn = model_id_in.value.strip() or name
                         if not name or not key:
                             return ui.notify("Model name and API key required.", color='negative')
-                        new_cfg = {"name": name, "model_name": mn, "api_key": key, "base_url": url_in.value.strip() or None, "model_type": type_sel.value}
+                        new_cfg = {"name": name, "model_name": mn, "api_key": key, "base_url": url_in.value.strip() or None, "model_type": type_sel.value, "provider": provider_sel.value}
                         APP_STATE["saved_models_config"] = [c for c in APP_STATE.get("saved_models_config", []) if c['name'] != name]
                         APP_STATE["saved_models_config"].append(new_cfg)
                         ui.notify(f"Config '{name}' saved.", color='positive')
-                        name_in.value = key_in.value = url_in.value = model_name_in.value = ''
+                        name_in.value = key_in.value = url_in.value = model_id_in.value = ''
                         update_model_ui()
                     def delete_models():
                         if sel := ui_refs["model_table"].selected:
@@ -2350,17 +2308,21 @@ def main_page():
                             ui.notify("Invalid password.", color='negative')
                     with ui.expansion("API & Model Settings", icon='settings', value=True).classes('w-full'):
                         with ui.card_section():
-                            mn_in = ui.input(label="Model Name")
+                            name_in = ui.input(label="Display Name")
+                            provider_in = ui.select(['openai', 'nvidia'], label='Provider', value='openai')
+                            model_id_in = ui.input(label="Model ID")
                             ak_in = ui.input(label="API Key", password=True)
                             bu_in = ui.input(label="Base URL")
                             mt_in = ui.select(['Text Output', 'Image Generation', 'Multimodal'], label='Model Type', value='Text Output')
-                            ui.button("Save Config", on_click=lambda: save_model_config(mn_in, ak_in, bu_in, mt_in)).classes('w-full mt-4')
+                            ui.button("Save Config", on_click=lambda: save_model_config(name_in, ak_in, bu_in, mt_in, model_id_in, provider_in)).classes('w-full mt-4')
                         with ui.card_section():
                             pw_in = ui.input(label="Load Presets", placeholder="Enter preset password...")
                             ui.button("Load Presets", on_click=lambda: load_presets(pw_in.value)).classes('w-full mt-4')
                         ui.separator()
                         cols = [
                             {'name': 'name', 'label': 'Model Name', 'field': 'name', 'align': 'left'},
+                            {'name': 'provider', 'label': 'Provider', 'field': 'provider', 'align': 'left'},
+                            {'name': 'model_name', 'label': 'Model ID', 'field': 'model_name', 'align': 'left'},
                             {'name': 'model_type', 'label': 'Type', 'field': 'model_type', 'align': 'left'},
                             {'name': 'base_url', 'label': 'Base URL', 'field': 'base_url', 'align': 'left'}
                         ]
@@ -2396,6 +2358,37 @@ def main_page():
                             if i_models and ui_refs['model_selects']["Image Generation Model"]:
                                 ui_refs['model_selects']["Image Generation Model"].set_value(random.choice(i_models))
                         ui.button("Randomly Assign Models", on_click=random_assign, icon='shuffle').classes('w-full mt-4')
+
+                        async def fill_demo_llms():
+                            api_key = os.environ.get('NVIDIA_API_KEY', '').strip()
+                            if not api_key:
+                                ui.notify("Set NVIDIA_API_KEY before loading demo models.", color='negative')
+                                return
+                            ui.notify(f"Testing {len(NVIDIA_DEMO_MODELS)} NVIDIA models...", color='info', timeout=5000)
+                            results = await check_nvidia_demo_models(api_key)
+                            healthy = [result['config'] for result in results if result['healthy']]
+                            failed = [result for result in results if not result['healthy']]
+                            if not healthy:
+                                details = '; '.join(f"{item['config']['model_name']}: {item['error']}" for item in failed)
+                                ui.notify(f"No NVIDIA demo model is available. {details}", color='negative', multi_line=True, timeout=15000)
+                                return
+                            demo_names = {config['name'] for config in healthy}
+                            APP_STATE['saved_models_config'] = [
+                                config for config in APP_STATE.get('saved_models_config', [])
+                                if config.get('name') not in demo_names
+                            ] + healthy
+                            update_model_ui()
+                            text_roles = [role for role in ui_refs['model_selects'] if role != 'Image Generation Model']
+                            assignments = assign_healthy_text_models([config['name'] for config in healthy], text_roles)
+                            for role, model_name in assignments.items():
+                                ui_refs['model_selects'][role].set_value(model_name)
+                            ui.notify(
+                                f"Loaded {len(healthy)} healthy NVIDIA models; {len(failed)} failed health checks.",
+                                color='positive',
+                                timeout=10000,
+                            )
+
+                        ui.button("Fill with Demo LLMs", on_click=fill_demo_llms, icon='bolt').classes('w-full mt-2')
 
         # Image RAG Tab
         with ui.tab_panel(image_rag_tab):
@@ -2594,4 +2587,4 @@ if __name__ in {"__main__", "__mp_main__"}:
         print("Image RAG module enabled with FAISS support")
     else:
         print("Image RAG module disabled (FAISS not installed)")
-    ui.run(title="Multi-Agent Item Development (MAID)", dark=False, port=8080, reload=False, uvicorn_logging_level='warning')
+    ui.run(title="Multi-Agent Item Development (MAID)", dark=False, host="0.0.0.0", port=8080, reload=False, uvicorn_logging_level='warning')

@@ -8,8 +8,10 @@ scikit-learn>=1.7.0
 xgboost>=3.2.0
 sentence-transformers>=5.3.0
 openai>=1.0.0
+langchain-nvidia-ai-endpoints>=1.0.0
 python-docx>=1.0.0
 joblib>=1.5.0
+pytest>=8.0.0
 
 # Image RAG Dependencies
 faiss-cpu>=1.7.0
