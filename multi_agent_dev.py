@@ -12,6 +12,7 @@ import functools
 import html
 import io
 import joblib
+import os
 import random
 import re
 import time
@@ -40,7 +41,14 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.shared import Inches, Pt
 
-from openai import AsyncOpenAI, OpenAI
+from model_providers import (
+    AIModel,
+    NVIDIA_DEMO_MODELS,
+    assign_healthy_text_models,
+    check_nvidia_demo_models,
+)
+from syllabus_catalog import BUILTIN_SYLLABUSES, DEFAULT_SYLLABUS_NAME
+from syllabus_ui import replace_tree_nodes
 
 # --- Image RAG Module ---
 try:
@@ -279,344 +287,7 @@ IMAGES_DIR = BASE_OUTPUT_DIR / "generated_images"
 SELECTION_LOGS_DIR = BASE_OUTPUT_DIR / "selection_logs"
 IMAGE_RAG_DIR = BASE_OUTPUT_DIR / "image_rag"
 
-SYLLABUS_DATA_HIERARCHICAL = {
-    "医师资格考试大纲": {
-        "第一部分 医学人文综合": {
-            "医学心理学": {
-                "医学心理学总论": [
-                    "医学心理学的概述",
-                    "医学心理学的任务、观点与研究方法",
-                    "心理学的概念",
-                    "心理现象的分类",
-                    "心理实质的内容",
-                ],
-                "认识过程": [
-                    "感觉与知觉的概念、种类与特征",
-                    "记忆的概念、种类、过程及其应用",
-                    "思维的概念、特征与创造性思维的应用",
-                ],
-                "情绪过程": [
-                    "情绪与情感的概念",
-                    "情绪与情感的分类",
-                    "情绪的作用、调节、管理及其应用",
-                ],
-                "意志过程": [
-                    "意志的概念、特征与基本过程",
-                    "意志的品质与应用",
-                ],
-                "需要与动机": [
-                    "需要的概念、需要层次论及其应用",
-                    "动机定义与分类",
-                    "动机冲突的类型及其应用",
-                ],
-                "人格": [
-                    "人格的定义",
-                    "能力与智力的概念、分类及其应用",
-                    "气质的概念、特征、类型与意义",
-                    "性格的概念、特征与分型",
-                    "人格形成的标志与影响因素",
-                ],
-                "心理健康": [
-                    "心理健康概述",
-                    "不同年龄阶段的心理健康",
-                ],
-                "心理应激与心身疾病": [
-                    "心理应激",
-                    "心身疾病",
-                ],
-                "心理评估": [
-                    "心理评估概述",
-                    "心理测验的分类及其应用",
-                    "信度、效度和常模",
-                    "常用的心理测验",
-                ],
-                "心理治疗与心理咨询": [
-                    "心理治疗概述",
-                    "临床心理咨询",
-                ],
-                "医患关系与医患沟通": [
-                    "医患关系的心理方面",
-                    "医患沟通的理论、技术及其应用",
-                    "患者的心理问题",
-                ],
-            },
-            "医学伦理学": {
-                "伦理学与医学伦理学": [
-                    "伦理学概述",
-                    "医学伦理学概述",
-                    "医学伦理学的基本原则",
-                    "医学伦理学的基本规范",
-                ],
-                "医疗人际关系伦理": [
-                    "医患关系",
-                    "医患双方的权利与义务",
-                    "医务人员之间的关系伦理",
-                ],
-                "临床诊疗伦理": [
-                    "临床诊疗的伦理原则",
-                    "临床诊断的伦理要求",
-                    "临床治疗的伦理要求",
-                ],
-                "临终关怀与死亡伦理": [
-                    "临终关怀伦理",
-                    "死亡伦理",
-                ],
-                "公共卫生伦理": [
-                    "公共卫生伦理概述",
-                    "疾病防控的伦理",
-                    "健康体检的伦理",
-                    "健康教育与健康促进伦理",
-                ],
-                "医学科研伦理": [
-                    "医学科研伦理概述",
-                    "人体试验伦理",
-                    "伦理审查",
-                ],
-                "医学新技术研究与应用伦理": [
-                    "人类辅助生殖技术伦理",
-                    "器官移植伦理",
-                    "干细胞研究伦理",
-                    "基因诊疗伦理",
-                ],
-            },
-            "卫生法规": {
-                "执业医师法": [
-                    "医师资格考试",
-                    "医师注册制度",
-                    "医师执业权利与义务",
-                    "医师执业规则",
-                    "法律责任",
-                ],
-                "医疗机构管理条例": [
-                    "医疗机构执业规则",
-                    "医疗事故处理条例",
-                ],
-                "传染病防治法": [
-                    "法定传染病分类",
-                    "疫情报告与通报制度",
-                    "隔离与医疗措施",
-                ],
-                "药品管理法": [
-                    "药品生产和经营管理",
-                    "医疗机构药事管理",
-                    "药品不良反应报告",
-                    "特殊管理的药品",
-                ],
-                "母婴保健法": [
-                    "婚前保健",
-                    "孕产期保健",
-                    "技术鉴定",
-                ],
-                "献血法": [
-                    "无偿献血制度",
-                    "血站管理",
-                    "法律责任",
-                ],
-                "其他相关法律": [
-                    "职业病防治法",
-                    "食品安全法",
-                    "精神卫生法",
-                    "侵权责任法",
-                ],
-            },
-        },
-        "第二部分 临床医学": {
-            "内科学": {
-                "呼吸系统疾病": [
-                    "慢性阻塞性肺疾病",
-                    "支气管哮喘",
-                    "肺炎",
-                    "肺结核",
-                ],
-                "心血管系统疾病": [
-                    "高血压",
-                    "冠状动脉粥样硬化性心脏病",
-                    "心力衰竭",
-                    "心脏瓣膜病",
-                ],
-                "消化系统疾病": [
-                    "胃炎",
-                    "消化性溃疡",
-                    "肝硬化",
-                    "肝癌",
-                ],
-                "泌尿系统疾病": [
-                    "肾小球肾炎",
-                    "肾病综合征",
-                    "尿路感染",
-                ],
-                "血液系统疾病": [
-                    "贫血",
-                    "白血病",
-                    "淋巴瘤",
-                ],
-                "内分泌系统疾病": [
-                    "甲状腺疾病",
-                    "糖尿病",
-                    "腺垂体功能减退症",
-                ],
-                "结缔组织病": [
-                    "类风湿关节炎",
-                    "系统性红斑狼疮",
-                ],
-                "理化因素所致疾病": [
-                    "中毒",
-                    "中暑",
-                    "冻僵",
-                ],
-                "神经系统疾病": [
-                    "癫痫",
-                    "脑血管疾病",
-                    "帕金森病",
-                ],
-            },
-            "外科学": {
-                "外科基础": [
-                    "无菌术",
-                    "外科感染",
-                    "创伤",
-                    "烧伤",
-                    "肿瘤",
-                ],
-                "麻醉学": [
-                    "局部麻醉",
-                    "全身麻醉",
-                ],
-                "普通外科": [
-                    "颈部疾病",
-                    "乳房疾病",
-                    "腹外疝",
-                    "腹部损伤",
-                    "胃十二指肠疾病",
-                    "小肠疾病",
-                    "阑尾疾病",
-                    "结直肠与肛管疾病",
-                    "肝疾病",
-                    "胆道疾病",
-                    "胰腺疾病",
-                    "周围血管疾病",
-                ],
-                "骨科": [
-                    "骨折",
-                    "关节脱位",
-                    "腰椎间盘突出症",
-                    "颈椎病",
-                ],
-                "泌尿外科": [
-                    "泌尿系统损伤",
-                    "泌尿系统结石",
-                    "泌尿系统肿瘤",
-                ],
-                "胸外科": [
-                    "肋骨骨折",
-                    "气胸",
-                    "血胸",
-                ],
-                "神经外科": [
-                    "颅内压增高",
-                    "脑疝",
-                    "颅脑损伤",
-                ],
-            },
-            "妇产科学": {
-                "女性生殖系统": [
-                    "女性生殖系统解剖",
-                    "女性生殖系统生理",
-                ],
-                "妊娠与分娩": [
-                    "妊娠诊断",
-                    "正常分娩",
-                    "正常产褥",
-                ],
-                "病理妊娠": [
-                    "流产",
-                    "异位妊娠",
-                    "妊娠期高血压疾病",
-                    "前置胎盘",
-                    "胎盘早剥",
-                ],
-                "妊娠合并症": [
-                    "心脏病",
-                    "糖尿病",
-                    "贫血",
-                ],
-                "女性生殖系统炎症": [
-                    "阴道炎",
-                    "宫颈炎",
-                    "盆腔炎",
-                ],
-                "肿瘤": [
-                    "子宫肌瘤",
-                    "宫颈癌",
-                    "卵巢肿瘤",
-                ],
-            },
-            "儿科学": {
-                "生长发育": [
-                    "小儿年龄分期",
-                    "生长发育规律",
-                    "体格生长",
-                    "神经精神发育",
-                ],
-                "儿童保健": [
-                    "计划免疫",
-                    "营养与喂养",
-                ],
-                "新生儿疾病": [
-                    "新生儿窒息",
-                    "新生儿黄疸",
-                    "新生儿寒冷损伤综合征",
-                ],
-                "感染性疾病": [
-                    "麻疹",
-                    "风疹",
-                    "幼儿急疹",
-                    "水痘",
-                    "手足口病",
-                    "流行性腮腺炎",
-                    "中毒型细菌性痢疾",
-                ],
-                "消化系统疾病": [
-                    "小儿腹泻",
-                    "先天性肥厚性幽门狭窄",
-                ],
-                "呼吸系统疾病": [
-                    "急性上呼吸道感染",
-                    "支气管肺炎",
-                    "支气管哮喘",
-                ],
-                "心血管系统疾病": [
-                    "先天性心脏病",
-                    "病毒性心肌炎",
-                ],
-                "血液系统疾病": [
-                    "小儿贫血",
-                    "白血病",
-                ],
-                "泌尿系统疾病": [
-                    "急性肾小球肾炎",
-                    "肾病综合征",
-                ],
-            },
-        },
-        "第三部分 公共科目": {
-            "预防医学": {
-                "概述": [
-                    "绪论",
-                    "健康危险因素评价",
-                    "健康相关行为干预",
-                    "临床预防服务",
-                ],
-            },
-            "医学人文": {
-                "概述": [
-                    "医学心理学",
-                    "医学伦理学",
-                ],
-            },
-        },
-    },
-}
+SYLLABUS_DATA_HIERARCHICAL = BUILTIN_SYLLABUSES[DEFAULT_SYLLABUS_NAME]
 
 PREDEFINED_KEYS = {}
 
@@ -629,6 +300,7 @@ APP_STATE: Dict[str, Any] = {
     "image_rag": None,
     "rag_search_enabled": False,
     "rag_model_name": None,
+    "active_builtin_syllabus": DEFAULT_SYLLABUS_NAME,
     "difficulty_predictor": AppState(),
 }
 
@@ -673,61 +345,13 @@ def _perform_training(X_train: Any, y_train: Any, model_config: dict) -> Any:
 # ==============================================================================
 # MCQ Development Module: Core Classes
 # ==============================================================================
-class AIModel:
-    def __init__(self, name: str, model_name: str, api_key: str, base_url: Optional[str] = None, model_type: str = 'Text Output'):
-        if not all([name, model_name, api_key]):
-            raise ValueError("Model name, model_name, and API key are all required.")
-        self.name = name
-        self.model_name = model_name
-        self.api_key = api_key
-        self.base_url = base_url.strip() if base_url else None
-        self.model_type = model_type
-        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
-        self.async_client = AsyncOpenAI(api_key=self.api_key, base_url=self.base_url)
-        self.image_client = self.client
-
-    async def call_ai_model(self, system_prompt: str, user_prompt: str, json_mode: bool = False):
-        try:
-            kwargs = {"model": self.model_name, "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]}
-            if json_mode:
-                kwargs["response_format"] = {"type": "json_object"}
-            response = await self.async_client.chat.completions.create(**kwargs)
-            content = response.choices[0].message.content or ""
-            usage = response.usage
-            usage_dict = {"prompt_tokens": usage.prompt_tokens, "completion_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-            return content, usage_dict
-        except Exception as e:
-            error_msg = f"Error calling model '{self.name}': {e}"
-            print(error_msg)
-            return f"Error: {error_msg}", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
-
-    async def call_ai_model_stream(self, system_prompt: str, user_prompt: str):
-        try:
-            stream = await self.async_client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                stream=True
-            )
-            async for chunk in stream:
-                if chunk.choices and chunk.choices[0].delta.content:
-                    yield chunk.choices[0].delta.content
-        except Exception as e:
-            yield f"Error: {e}"
-
-
 class MCQDevelopmentSystem:
     def __init__(self, models_config_list: List[Dict]):
         self.models = []
         self.history: List[Dict] = []
         for c in models_config_list:
             try:
-                self.models.append(AIModel(
-                    name=c.get('name', 'unknown'),
-                    model_name=c.get('model_name', c.get('name', 'unknown')),
-                    api_key=c.get('api_key', ''),
-                    base_url=c.get('base_url'),
-                    model_type=c.get('model_type', 'Text Output')
-                ))
+                self.models.append(AIModel.from_config(c))
             except Exception as e:
                 print(f"Warning: Skipping invalid model config '{c.get('name', 'N/A')}': {e}")
 
@@ -1657,9 +1281,13 @@ def serve_outputs():
 def main_page():
     app.add_static_files('/outputs', BASE_OUTPUT_DIR)
     ui.add_head_html("""<style>.soft-card{border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.05);}</style>""")
-    tree_nodes = convert_to_tree_nodes(SYLLABUS_DATA_HIERARCHICAL)
+    initial_syllabus_name = APP_STATE.get("active_builtin_syllabus", DEFAULT_SYLLABUS_NAME)
+    if initial_syllabus_name not in BUILTIN_SYLLABUSES:
+        initial_syllabus_name = DEFAULT_SYLLABUS_NAME
+    initial_syllabus = BUILTIN_SYLLABUSES[initial_syllabus_name]
+    tree_nodes = convert_to_tree_nodes(initial_syllabus)
     ALL_NODES_BY_ID = get_nodes_as_dict(tree_nodes)
-    APP_STATE["keyword_to_details_map"] = flatten_syllabus_to_map(SYLLABUS_DATA_HIERARCHICAL)
+    APP_STATE["keyword_to_details_map"] = flatten_syllabus_to_map(initial_syllabus)
 
     ui_refs: Dict[str, Any] = {
         "model_selects": {}, "model_table": None, "status_text": None,
@@ -2181,6 +1809,29 @@ def main_page():
                 # Left: Item Generation Specification
                 with ui.card().classes('w-1/3'):
                     ui.markdown("## Item Generation Specification")
+                    def apply_builtin_syllabus(syllabus_name: str):
+                        nonlocal tree_nodes, ALL_NODES_BY_ID
+                        syllabus = BUILTIN_SYLLABUSES[syllabus_name]
+                        tree_nodes = convert_to_tree_nodes(syllabus)
+                        ALL_NODES_BY_ID = get_nodes_as_dict(tree_nodes)
+                        APP_STATE["keyword_to_details_map"] = flatten_syllabus_to_map(syllabus)
+                        APP_STATE["selected_kps_with_inputs"] = {}
+                        APP_STATE["active_builtin_syllabus"] = syllabus_name
+                        replace_tree_nodes(tree, tree_nodes)
+                        update_selection_area([])
+                        syllabus_status.set_text(f"Built-in syllabus: {syllabus_name}")
+                        syllabus_status.set_visibility(True)
+
+                    def switch_builtin_syllabus(e):
+                        apply_builtin_syllabus(e.value)
+                        ui.notify(f"Loaded {e.value}.", type='positive')
+
+                    builtin_syllabus_select = ui.select(
+                        list(BUILTIN_SYLLABUSES),
+                        label="Built-in Syllabus",
+                        value=APP_STATE["active_builtin_syllabus"],
+                        on_change=switch_builtin_syllabus,
+                    ).classes('w-full')
                     with ui.expansion("Custom Syllabus Upload", icon='upload_file').classes('w-full').props('dense'):
                         ui.label("Upload a Markdown file with headings (# ## ### ...) to define your own syllabus tree. Bullet items (- or *) become selectable leaf nodes.").classes('text-xs text-gray-500')
                         syllabus_status = ui.label('').classes('text-xs')
@@ -2205,8 +1856,7 @@ def main_page():
                             ALL_NODES_BY_ID = get_nodes_as_dict(new_nodes)
                             APP_STATE["keyword_to_details_map"] = flatten_syllabus_to_map(normalized)
                             APP_STATE["selected_kps_with_inputs"] = {}
-                            tree.props({'nodes': new_nodes, 'ticked': []})
-                            tree.update()
+                            replace_tree_nodes(tree, new_nodes)
                             update_selection_area([])
                             leaf_count = sum(1 for n in ALL_NODES_BY_ID.values() if 'children' not in n)
                             syllabus_status.set_text(f"Loaded: {e.name} ({leaf_count} selectable items)")
@@ -2215,17 +1865,9 @@ def main_page():
                         ui.upload(on_upload=handle_syllabus_upload, auto_upload=True, label="Drop .md file here or click to upload").props('accept=.md,.txt').classes('w-full mt-2')
                         with ui.row().classes('w-full mt-2'):
                             def reset_to_default():
-                                nonlocal tree_nodes, ALL_NODES_BY_ID
-                                tree_nodes = convert_to_tree_nodes(SYLLABUS_DATA_HIERARCHICAL)
-                                ALL_NODES_BY_ID = get_nodes_as_dict(tree_nodes)
-                                APP_STATE["keyword_to_details_map"] = flatten_syllabus_to_map(SYLLABUS_DATA_HIERARCHICAL)
-                                APP_STATE["selected_kps_with_inputs"] = {}
-                                tree.props({'nodes': tree_nodes, 'ticked': []})
-                                tree.update()
-                                update_selection_area([])
-                                syllabus_status.set_text('')
-                                ui.notify("Reset to default syllabus.", type='info')
-                            ui.button("Reset to Default", on_click=reset_to_default, icon='restart_alt').props('flat dense size=sm color=grey')
+                                apply_builtin_syllabus(builtin_syllabus_select.value)
+                                ui.notify("Reset the current built-in syllabus.", type='info')
+                            ui.button("Reset Current Syllabus", on_click=reset_to_default, icon='restart_alt').props('flat dense size=sm color=grey')
                     search_input = ui.input(placeholder='Search syllabus...').props('clearable').classes('w-full')
                     tree = ui.tree(tree_nodes, label_key='label', tick_strategy='leaf', on_tick=lambda e: update_selection_area(e.value)).props('dense no-results-label="No matching items"')
                     search_input.bind_value(tree, 'filter')
@@ -2317,16 +1959,16 @@ def main_page():
                             sel.options = choices
                             sel.value = cur if cur in choices else (choices[0] if choices else None)
                             sel.update()
-                    def save_model_config(name_in, key_in, url_in, type_sel, model_name_in):
+                    def save_model_config(name_in, key_in, url_in, type_sel, model_id_in, provider_sel):
                         name, key = name_in.value.strip(), key_in.value
-                        mn = model_name_in.value.strip() or name
+                        mn = model_id_in.value.strip() or name
                         if not name or not key:
                             return ui.notify("Model name and API key required.", color='negative')
-                        new_cfg = {"name": name, "model_name": mn, "api_key": key, "base_url": url_in.value.strip() or None, "model_type": type_sel.value}
+                        new_cfg = {"name": name, "model_name": mn, "api_key": key, "base_url": url_in.value.strip() or None, "model_type": type_sel.value, "provider": provider_sel.value}
                         APP_STATE["saved_models_config"] = [c for c in APP_STATE.get("saved_models_config", []) if c['name'] != name]
                         APP_STATE["saved_models_config"].append(new_cfg)
                         ui.notify(f"Config '{name}' saved.", color='positive')
-                        name_in.value = key_in.value = url_in.value = model_name_in.value = ''
+                        name_in.value = key_in.value = url_in.value = model_id_in.value = ''
                         update_model_ui()
                     def delete_models():
                         if sel := ui_refs["model_table"].selected:
@@ -2350,17 +1992,21 @@ def main_page():
                             ui.notify("Invalid password.", color='negative')
                     with ui.expansion("API & Model Settings", icon='settings', value=True).classes('w-full'):
                         with ui.card_section():
-                            mn_in = ui.input(label="Model Name")
+                            name_in = ui.input(label="Display Name")
+                            provider_in = ui.select(['openai', 'nvidia'], label='Provider', value='openai')
+                            model_id_in = ui.input(label="Model ID")
                             ak_in = ui.input(label="API Key", password=True)
                             bu_in = ui.input(label="Base URL")
                             mt_in = ui.select(['Text Output', 'Image Generation', 'Multimodal'], label='Model Type', value='Text Output')
-                            ui.button("Save Config", on_click=lambda: save_model_config(mn_in, ak_in, bu_in, mt_in)).classes('w-full mt-4')
+                            ui.button("Save Config", on_click=lambda: save_model_config(name_in, ak_in, bu_in, mt_in, model_id_in, provider_in)).classes('w-full mt-4')
                         with ui.card_section():
                             pw_in = ui.input(label="Load Presets", placeholder="Enter preset password...")
                             ui.button("Load Presets", on_click=lambda: load_presets(pw_in.value)).classes('w-full mt-4')
                         ui.separator()
                         cols = [
                             {'name': 'name', 'label': 'Model Name', 'field': 'name', 'align': 'left'},
+                            {'name': 'provider', 'label': 'Provider', 'field': 'provider', 'align': 'left'},
+                            {'name': 'model_name', 'label': 'Model ID', 'field': 'model_name', 'align': 'left'},
                             {'name': 'model_type', 'label': 'Type', 'field': 'model_type', 'align': 'left'},
                             {'name': 'base_url', 'label': 'Base URL', 'field': 'base_url', 'align': 'left'}
                         ]
@@ -2396,6 +2042,37 @@ def main_page():
                             if i_models and ui_refs['model_selects']["Image Generation Model"]:
                                 ui_refs['model_selects']["Image Generation Model"].set_value(random.choice(i_models))
                         ui.button("Randomly Assign Models", on_click=random_assign, icon='shuffle').classes('w-full mt-4')
+
+                        async def fill_demo_llms():
+                            api_key = os.environ.get('NVIDIA_API_KEY', '').strip()
+                            if not api_key:
+                                ui.notify("Set NVIDIA_API_KEY before loading demo models.", color='negative')
+                                return
+                            ui.notify(f"Testing {len(NVIDIA_DEMO_MODELS)} NVIDIA models...", color='info', timeout=5000)
+                            results = await check_nvidia_demo_models(api_key)
+                            healthy = [result['config'] for result in results if result['healthy']]
+                            failed = [result for result in results if not result['healthy']]
+                            if not healthy:
+                                details = '; '.join(f"{item['config']['model_name']}: {item['error']}" for item in failed)
+                                ui.notify(f"No NVIDIA demo model is available. {details}", color='negative', multi_line=True, timeout=15000)
+                                return
+                            demo_names = {config['name'] for config in healthy}
+                            APP_STATE['saved_models_config'] = [
+                                config for config in APP_STATE.get('saved_models_config', [])
+                                if config.get('name') not in demo_names
+                            ] + healthy
+                            update_model_ui()
+                            text_roles = [role for role in ui_refs['model_selects'] if role != 'Image Generation Model']
+                            assignments = assign_healthy_text_models([config['name'] for config in healthy], text_roles)
+                            for role, model_name in assignments.items():
+                                ui_refs['model_selects'][role].set_value(model_name)
+                            ui.notify(
+                                f"Loaded {len(healthy)} healthy NVIDIA models; {len(failed)} failed health checks.",
+                                color='positive',
+                                timeout=10000,
+                            )
+
+                        ui.button("Fill with Demo LLMs", on_click=fill_demo_llms, icon='bolt').classes('w-full mt-2')
 
         # Image RAG Tab
         with ui.tab_panel(image_rag_tab):
@@ -2594,4 +2271,4 @@ if __name__ in {"__main__", "__mp_main__"}:
         print("Image RAG module enabled with FAISS support")
     else:
         print("Image RAG module disabled (FAISS not installed)")
-    ui.run(title="Multi-Agent Item Development (MAID)", dark=False, port=8080, reload=False, uvicorn_logging_level='warning')
+    ui.run(title="Multi-Agent Item Development (MAID)", dark=False, host="0.0.0.0", port=8080, reload=False, uvicorn_logging_level='warning')

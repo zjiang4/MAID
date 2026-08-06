@@ -73,6 +73,7 @@ The application will start and display a URL (usually http://localhost:8080) in 
 - `xgboost>=3.2.0` - Gradient boosting
 - `sentence-transformers>=5.3.0` - Text embeddings
 - `openai>=1.0.0` - OpenAI API client
+- `langchain-nvidia-ai-endpoints>=1.0.0` - NVIDIA-hosted model client
 - `python-docx>=1.0.0` - DOCX file generation
 
 ### Image RAG Dependencies (NEW!)
@@ -93,18 +94,49 @@ python multi_agent_dev.py
 
 The application will be available at http://localhost:8080
 
+#### Windows One-Click Start
+
+Double-click `start_maid_windows.bat`. The launcher uses the default `python`
+environment from `PATH`, enables pip when necessary, and installs missing
+dependencies from the official PyPI index. It then starts MAID in a hidden
+background process, waits for port 8080 to become ready, and opens the UI in the
+default browser.
+
+Runtime output is written to `maid_server.log` and errors are written to
+`maid_server_error.log`. The background process ID is stored in
+`maid_server.pid`. Re-running the launcher while port 8080 is already active
+opens the existing UI instead of starting another server.
+
 ### Configuring AI Models
 
 1. Navigate to **"Model Configuration"** section
 2. Click **"API and Model Settings"**
 3. Enter model details:
-   - **Model Name**: Display name (e.g., "GPT-4")
+   - **Display Name**: Name shown in role selectors (e.g., "GPT-4")
+   - **Provider**: `openai` or `nvidia`
+   - **Model ID**: Provider model identifier (e.g., `openai/gpt-oss-120b`)
    - **API Key**: Your OpenAI API key
    - **Base URL**: API endpoint (if using a custom endpoint)
    - **Model Type**: Select "Text Output", "Image Generation", or "Multimodal"
 4. Click **"Save Configuration"**
 
 Alternatively, load preset configurations by entering the preset password.
+
+### NVIDIA Demo Models
+
+Set the NVIDIA credential before starting MAID. PowerShell example:
+
+```powershell
+$env:NVIDIA_API_KEY="nvapi-your-key-here"
+python multi_agent_dev.py
+```
+
+In **Model Configuration**, click **Fill with Demo LLMs**. MAID tests every
+bundled NVIDIA candidate for the current session, keeps only models that return
+a valid response, and randomly assigns the healthy models to Writer, Reviewers,
+and Editor. A failed or unavailable model does not prevent the other models from
+being loaded. The API key is read from the process environment and is not stored
+in the repository.
 
 ### Question Generation Workflow
 
@@ -135,7 +167,16 @@ Alternatively, load preset configurations by entering the preset password.
 
 ### Custom Syllabus Upload
 
-Instead of using the built-in medical curriculum tree, you can upload your own syllabus outline in **Markdown format**.
+MAID includes two built-in curricula that can be selected above the syllabus
+tree:
+
+- **USMLE Step 1 (English)**, organized by foundational sciences, organ systems,
+  biostatistics, epidemiology, and ethics.
+- **Chinese Medical Licensing Examination (Chinese)**, preserving the original
+  Chinese curriculum included with MAID.
+
+You can replace either built-in tree for the current session by uploading your
+own syllabus outline in **Markdown format**.
 
 #### Markdown Format
 
@@ -189,7 +230,7 @@ Example:
 3. Drag and drop your `.md` file (or click to browse).
 4. The syllabus tree will update automatically to reflect your custom outline.
 5. Select items and set question counts as usual.
-6. Click **"Reset to Default"** to revert to the built-in medical curriculum.
+6. Click **"Reset Current Syllabus"** to restore the currently selected built-in curriculum.
 
 ### Difficulty Prediction
 
@@ -471,4 +512,3 @@ For issues or questions:
 - **FAISS** for efficient similarity search
 - **OpenAI** for providing powerful AI models
 - Medical education community for curriculum standards
-
