@@ -1,0 +1,155 @@
+MAID DEPLOYMENT AND USER INSTRUCTIONS
+=====================================
+
+1. SYSTEM REQUIREMENTS
+----------------------
+- Windows 10/11, macOS, or Linux
+- Python 3.11 or newer recommended
+- Internet access for package installation and hosted LLM calls
+- At least 8 GB RAM recommended; 16 GB is preferable for local embedding models
+- Docker is optional and is not required for normal use
+
+
+2. DOWNLOAD THE PROJECT
+-----------------------
+Open a terminal and run:
+
+    git clone https://github.com/zjiang4/MAID.git
+    cd MAID
+
+Alternatively, download the repository ZIP from GitHub and extract it.
+
+
+3. WINDOWS ONE-CLICK DEPLOYMENT (RECOMMENDED)
+---------------------------------------------
+Double-click:
+
+    start_maid_windows.bat
+
+The launcher will:
+- Use the default Python installation available in PATH
+- Initialize pip if it is missing
+- Check required Python packages
+- Install missing packages from the official PyPI source
+- Restart an older MAID process if it is already using port 8080
+- Start MAID in a hidden background process
+- Wait until the server is ready
+- Open http://127.0.0.1:8080 in the default browser
+
+Runtime files:
+- maid_server.log: normal server output
+- maid_server_error.log: server errors
+- maid_server.pid: background process identifier
+
+If another application uses port 8080, close that application and run the
+launcher again.
+
+
+4. MANUAL DEPLOYMENT
+--------------------
+From the project directory, run:
+
+    python -m pip install --upgrade pip --index-url https://pypi.org/simple
+    python -m pip install -r requirements.txt --index-url https://pypi.org/simple
+    python multi_agent_dev.py
+
+Then open:
+
+    http://127.0.0.1:8080
+
+The server listens on 0.0.0.0:8080, so it can also be accessed from another
+computer on the same network by using the host computer's IP address.
+
+
+5. FIRST DEMONSTRATION WITHOUT AN API KEY
+-----------------------------------------
+1. Open the MCQ Development tab.
+2. Choose either:
+   - USMLE Step 1 (English)
+   - Chinese Medical Licensing Examination (Chinese)
+3. Click "Fill with Demo LLMs - No API Key Required".
+4. Keep the progress dialog open while MAID tests all bundled NVIDIA models.
+5. MAID loads only models that respond successfully and assigns them to the
+   Writer, three Reviewers, and Editor roles.
+
+A limited demonstration NVIDIA credential is bundled with the project. Model
+availability can change. A failed model is automatically excluded and does not
+prevent other healthy models from being used.
+
+
+6. GENERATE QUESTIONS
+---------------------
+1. Expand the syllabus tree.
+2. Tick one or more leaf-level syllabus topics.
+3. Set the question count for each selected topic.
+4. Click "Confirm Selection".
+5. Load Demo LLMs or configure your own models.
+6. Confirm that Writer, Reviewer 1, Reviewer 2, Reviewer 3, and Editor/Final all
+   have assigned models.
+7. Click "Generate Item Sets".
+8. Follow the overall progress bar and current-agent progress display.
+9. Review generated questions and download the DOCX or generation report.
+
+
+7. USE YOUR OWN MODEL API
+-------------------------
+In API & Model Settings, enter:
+- Display Name: a name shown in MAID
+- Provider: openai or nvidia
+- Model ID: the provider's model identifier
+- API Key: the provider credential
+- Base URL: optional for OpenAI-compatible services
+- Model Type: Text Output, Image Generation, or Multimodal
+
+Click "Save Config", then assign the model to one or more roles.
+
+
+8. CUSTOMIZE AGENT PROMPTS
+--------------------------
+Open the Prompt DIY tab to edit the system prompts for:
+- Writer
+- Reviewers
+- Editor
+- Final Decision Editor
+
+Click "Save and Apply" to use the prompts immediately. They are stored locally
+in prompt_settings.json and restored after restarting MAID. This file is ignored
+by Git. Click "Restore Defaults" to remove local customizations.
+
+
+9. CUSTOM SYLLABUS
+------------------
+Open Custom Syllabus Upload and upload a UTF-8 Markdown file. Headings create
+the syllabus hierarchy and bullet items create selectable leaf topics.
+
+Use "Reset Current Syllabus" to return to the selected built-in syllabus.
+
+
+10. TROUBLESHOOTING
+-------------------
+- Save Config error:
+  Confirm that the latest main branch is installed and restart MAID.
+
+- Demo model unavailable:
+  Wait for health checks to finish. MAID will use the remaining healthy models.
+
+- Port 8080 already in use:
+  Close the other application or old server process, then restart MAID.
+
+- Package installation error:
+  Run the manual pip commands above using the official PyPI index.
+
+- Generation error:
+  Check that every required text role has a model assignment and inspect
+  maid_server_error.log or the error trace shown in the generation panel.
+
+- Slow first startup:
+  Machine-learning and sentence-transformer libraries can take additional time
+  to import on the first run. Keep the launcher open until the browser appears.
+
+
+11. RUN AUTOMATED TESTS
+-----------------------
+From the project directory:
+
+    python -m pytest tests -q

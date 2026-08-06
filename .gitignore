@@ -25,3 +25,4 @@ Thumbs.db
 maid_server.log
 maid_server_error.log
 maid_server.pid
+prompt_settings.json

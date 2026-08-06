@@ -238,6 +238,7 @@ async def check_nvidia_demo_models(
     *,
     checker: Callable[[Mapping[str, Any]], Any] = _default_health_checker,
     timeout: float = 45.0,
+    on_result: Callable[[int, int, Mapping[str, Any]], Any] | None = None,
 ) -> list[dict[str, Any]]:
     async def check(candidate: Mapping[str, Any]) -> dict[str, Any]:
         client_keys = {
@@ -266,7 +267,24 @@ async def check_nvidia_demo_models(
         except Exception as exc:
             return {"config": config, "healthy": False, "response": "", "error": str(exc)}
 
-    return list(await asyncio.gather(*(check(candidate) for candidate in candidates)))
+    async def indexed_check(index: int, candidate: Mapping[str, Any]):
+        return index, await check(candidate)
+
+    results: list[dict[str, Any] | None] = [None] * len(candidates)
+    completed = 0
+    tasks = [
+        asyncio.create_task(indexed_check(index, candidate))
+        for index, candidate in enumerate(candidates)
+    ]
+    for task in asyncio.as_completed(tasks):
+        index, result = await task
+        results[index] = result
+        completed += 1
+        if on_result:
+            callback_result = on_result(completed, len(candidates), result)
+            if asyncio.iscoroutine(callback_result):
+                await callback_result
+    return [result for result in results if result is not None]
 
 
 def assign_healthy_text_models(

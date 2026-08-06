@@ -48,7 +48,8 @@ from model_providers import (
     check_nvidia_demo_models,
 )
 from syllabus_catalog import BUILTIN_SYLLABUSES, DEFAULT_SYLLABUS_NAME
-from syllabus_ui import replace_tree_nodes
+from syllabus_ui import hierarchy_to_tree_nodes, replace_tree_nodes
+from prompt_settings import PROMPT_SETTINGS_FILE, load_prompt_settings, save_prompt_settings
 
 # --- Image RAG Module ---
 try:
@@ -301,6 +302,7 @@ APP_STATE: Dict[str, Any] = {
     "rag_search_enabled": False,
     "rag_model_name": None,
     "active_builtin_syllabus": DEFAULT_SYLLABUS_NAME,
+    "prompt_overrides": load_prompt_settings(),
     "difficulty_predictor": AppState(),
 }
 
@@ -374,6 +376,12 @@ class MCQDevelopmentSystem:
                 return text_models[0]
         raise ValueError(f"No suitable model found for role '{role}'.")
 
+    async def call_ai_model(self, model: AIModel, system_prompt: str, user_prompt: str, json_mode: bool = False):
+        return await model.call_ai_model(system_prompt, user_prompt, json_mode)
+
+    def call_ai_model_stream(self, model: AIModel, system_prompt: str, user_prompt: str):
+        return model.call_ai_model_stream(system_prompt, user_prompt)
+
     def add_to_history(self, role: str, content: str, version: int = 1, usage: Optional[Dict] = None):
         entry = {
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -404,14 +412,7 @@ def save_content_to_file(content: str, folder: Path, base_name: str, extension: 
 
 
 def convert_to_tree_nodes(hierarchical_data: dict, parent_key: str = '') -> List[Dict]:
-    nodes = []
-    for key, value in hierarchical_data.items():
-        node_id = f"{parent_key}/{key}" if parent_key else key
-        node = {'id': node_id, 'label': key}
-        if isinstance(value, dict):
-            node['children'] = convert_to_tree_nodes(value, node_id)
-        nodes.append(node)
-    return nodes
+    return hierarchy_to_tree_nodes(hierarchical_data, parent_key)
 
 
 def get_nodes_as_dict(nodes: List[Dict]) -> Dict[str, Dict]:
@@ -780,8 +781,13 @@ Your output MUST include:
 [Final Question Text]: The complete, ready-to-use question text (if approved)."""
 
 
+def active_agent_prompt(key: str, default: str) -> str:
+    value = APP_STATE.get("prompt_overrides", {}).get(key, "").strip()
+    return value or default
+
+
 async def run_full_mcq_pipeline(mcq_system: MCQDevelopmentSystem, prompt_context: Dict, model_names: Dict, step_progress, step_label, q_num: int, is_image_gen_enabled: bool) -> tuple:
-    history = []
+    mcq_system.clear_history()
     usage_stats = {
         "Writer_Initial": {"usage": None, "time": 0.0, "model": ""},
         "Image_Generation": {"usage": None, "time": 0.0, "model": ""},
@@ -810,7 +816,11 @@ async def run_full_mcq_pipeline(mcq_system: MCQDevelopmentSystem, prompt_context
         user_prompt = WRITER_USER_PROMPT_WITH_IMAGE.format(point=prompt_context["point"], topic=prompt_context["topic"], unit=prompt_context["unit"], image_instruction="Image generation is enabled.")
     else:
         user_prompt = WRITER_USER_PROMPT_TEMPLATE.format(point=prompt_context["point"], topic=prompt_context["topic"], unit=prompt_context["unit"], image_instruction="Image generation is NOT enabled. Focus on text-only questions.")
-    question_text, usage = await mcq_system.call_ai_model(writer_ai, WRITER_SYSTEM_PROMPT, user_prompt)
+    writer_system_prompt = active_agent_prompt("writer_system", WRITER_SYSTEM_PROMPT)
+    reviewer_system_prompt = active_agent_prompt("reviewer_system", REVIEWER_SYSTEM_PROMPT)
+    editor_system_prompt = active_agent_prompt("editor_system", EDITOR_SYSTEM_PROMPT)
+    final_system_prompt = active_agent_prompt("final_decision_system", FINAL_DECISION_SYSTEM_PROMPT)
+    question_text, usage = await mcq_system.call_ai_model(writer_ai, writer_system_prompt, user_prompt)
     usage_stats["Writer_Initial"].update({"usage": usage, "time": time.time() - start_time, "model": writer_ai.name})
     mcq_system.add_to_history(f"{log_prefix}Writer ({writer_ai.name})", question_text, 1, usage)
 
@@ -842,18 +852,21 @@ async def run_full_mcq_pipeline(mcq_system: MCQDevelopmentSystem, prompt_context
         "Question structure and technical compliance",
         "Language clarity and formatting"
     ]
-    v_offset = 1 if is_image_gen_enabled else 0
+    review_start_step = 3 if is_image_gen_enabled else 2
     for i, focus in enumerate(review_focuses):
-        update_progress(3 + i, f"Reviewer {i+1}...")
+        review_step = review_start_step + i
+        update_progress(review_step, f"Reviewer {i+1}...")
         start_time = time.time()
         reviewer_ai = mcq_system.select_model(f"Reviewer_{i+1}", model_names["reviewers"][i])
         rev_user_prompt = f"{REVIEWER_USER_PROMPT_TEMPLATE}\n\nReview Focus: {focus}\n\n{question_text}"
-        review, usage = await mcq_system.call_ai_model(reviewer_ai, REVIEWER_SYSTEM_PROMPT.format(review_focus=focus), rev_user_prompt)
+        role_prompt = reviewer_system_prompt.replace("{review_focus}", focus)
+        review, usage = await mcq_system.call_ai_model(reviewer_ai, role_prompt, rev_user_prompt)
         usage_stats[f"Reviewer_{i+1}"].update({"usage": usage, "time": time.time() - start_time, "model": reviewer_ai.name})
-        mcq_system.add_to_history(f"{log_prefix}Reviewer {i+1} ({reviewer_ai.name})", review, 3 + v_offset + i, usage)
+        mcq_system.add_to_history(f"{log_prefix}Reviewer {i+1} ({reviewer_ai.name})", review, review_step, usage)
 
     # Step 6: Editor summarizes
-    update_progress(6, "Editor summary...")
+    editor_step = review_start_step + len(review_focuses)
+    update_progress(editor_step, "Editor summary...")
     start_time = time.time()
     editor_ai = mcq_system.select_model("Editor", model_names["editor"])
     reviews_text = mcq_system.get_plain_text_history()
@@ -863,12 +876,13 @@ async def run_full_mcq_pipeline(mcq_system: MCQDevelopmentSystem, prompt_context
 
 Based on all reviews, provide a clear, concise, actionable revision guide for the original writer.
 Focus on improving: clinical knowledge depth, clinical reasoning assessment, and distractor quality."""
-    summary, usage = await mcq_system.call_ai_model(editor_ai, EDITOR_SYSTEM_PROMPT, editor_user_prompt)
+    summary, usage = await mcq_system.call_ai_model(editor_ai, editor_system_prompt, editor_user_prompt)
     usage_stats["Editor_Summary"].update({"usage": usage, "time": time.time() - start_time, "model": editor_ai.name})
-    mcq_system.add_to_history(f"{log_prefix}Editor Summary ({editor_ai.name})", summary, 6 + v_offset, usage)
+    mcq_system.add_to_history(f"{log_prefix}Editor Summary ({editor_ai.name})", summary, editor_step, usage)
 
     # Step 7: Writer revises
-    update_progress(7, "Writer revision...")
+    revision_step = editor_step + 1
+    update_progress(revision_step, "Writer revision...")
     start_time = time.time()
     revision_prompt = f"""You are the original writer of this Clinical Practitioner Qualification Examination MCQ.
 Please carefully read the editor's summary and revision guide, and revise your initial draft.
@@ -877,12 +891,13 @@ Provide the complete revised MCQ with all required sections (Question, Options, 
 {summary}
 
 {question_text}"""
-    revision, usage = await mcq_system.call_ai_model(writer_ai, WRITER_SYSTEM_PROMPT, revision_prompt)
+    revision, usage = await mcq_system.call_ai_model(writer_ai, writer_system_prompt, revision_prompt)
     usage_stats["Writer_Revision"].update({"usage": usage, "time": time.time() - start_time, "model": writer_ai.name})
-    mcq_system.add_to_history(f"{log_prefix}Writer Revision ({writer_ai.name})", revision, 7 + v_offset, usage)
+    mcq_system.add_to_history(f"{log_prefix}Writer Revision ({writer_ai.name})", revision, revision_step, usage)
 
     # Step 8: Final decision
-    update_progress(8, "Final decision...")
+    final_step = revision_step + 1
+    update_progress(final_step, "Final decision...")
     start_time = time.time()
     final_prompt = f"""As the final review editor, please review this MCQ's entire development process.
 
@@ -892,11 +907,11 @@ Make a final decision on the revised MCQ. Your output must contain:
 [Final Decision]: Approved for Exam / Approved with Minor Revisions / Requires Major Revisions
 [Review Comments]: Detailed reasoning
 [Final Question Text]: The complete question text"""
-    decision, usage = await mcq_system.call_ai_model(editor_ai, FINAL_DECISION_SYSTEM_PROMPT, final_prompt)
+    decision, usage = await mcq_system.call_ai_model(editor_ai, final_system_prompt, final_prompt)
     usage_stats["Editor_FinalDecision"].update({"usage": usage, "time": time.time() - start_time, "model": editor_ai.name})
-    mcq_system.add_to_history(f"{log_prefix}Final Decision ({editor_ai.name})", decision, 8 + v_offset, usage)
+    mcq_system.add_to_history(f"{log_prefix}Final Decision ({editor_ai.name})", decision, final_step, usage)
 
-    return history, usage_stats, q_img_path, q_img_prompt
+    return list(mcq_system.history), usage_stats, q_img_path, q_img_prompt
 
 
 # ==============================================================================
@@ -1296,7 +1311,8 @@ def main_page():
         "model_selects": {}, "model_table": None, "status_text": None,
         "question_preview_area": None, "download_row": None, "progress_row": None,
         "step_progress": None, "step_label": None, "generated_questions": [],
-        "run_folder": None, "log_file_path": None, "generate_button": None, "stop_button": None
+        "run_folder": None, "log_file_path": None, "generate_button": None, "stop_button": None,
+        "overall_progress": None, "generation_phase_label": None
     }
 
     def render_question_preview_area(questions: List[Dict]):
@@ -1735,6 +1751,8 @@ def main_page():
         APP_STATE['stop_requested'] = False
         status_text, question_preview_area, progress_row, step_progress, step_label, download_row = (ui_refs[k] for k in ["status_text", "question_preview_area", "progress_row", "step_progress", "step_label", "download_row"])
         status_text.value = "Preparing..."
+        ui_refs["overall_progress"].value = 0
+        ui_refs["generation_phase_label"].text = "Generation in progress: preparing models..."
         question_preview_area.clear()
         download_row.set_visibility(False)
         progress_row.set_visibility(True)
@@ -1762,10 +1780,13 @@ def main_page():
                     if APP_STATE['stop_requested']:
                         raise StopRequestedError
                     q_num += 1
+                    ui_refs["overall_progress"].value = (q_num - 1) / total_q
+                    ui_refs["generation_phase_label"].text = f"Generation in progress: question {q_num}/{total_q} - {item['keyword']}"
                     status_text.value = f"Generating: Question {q_num}/{total_q} ({item['keyword']})..."
                     history, q_img_path = [], None
                     prompt_ctx = generate_writer_prompt_context(item['keyword'], "None", APP_STATE["keyword_to_details_map"])
                     history, usage_stats, q_img_path, q_img_prompt = await run_full_mcq_pipeline(mcq_system, prompt_ctx, model_names, step_progress, step_label, q_num, is_img)
+                    ui_refs["overall_progress"].value = q_num / total_q
                     final_q = extract_final_question_from_history(history)
                     if final_q:
                         success_count += 1
@@ -1774,15 +1795,17 @@ def main_page():
                     save_content_to_file(report_html, reports_folder, f"mcq_{q_num}_report", "html")
                     log_parts.append(f"--- Question {q_num} ('{item['keyword']}') report generated ---")
             status_text.value = f"Done! Generated {success_count}/{total_q} questions."
+            ui_refs["generation_phase_label"].text = f"Generation complete: {success_count}/{total_q} questions"
         except StopRequestedError:
             status_text.value = f"Stopped by user. Completed {success_count} questions."
+            ui_refs["generation_phase_label"].text = "Generation stopped by user"
         except Exception as e:
             tb = traceback.format_exc()
             status_text.value = f"Error during generation: {e}"
+            ui_refs["generation_phase_label"].text = f"Generation failed: {e}"
             with question_preview_area:
                 ui.html(f"<pre>{html.escape(tb)}</pre>")
         finally:
-            progress_row.set_visibility(False)
             render_question_preview_area(gen_q)
             if gen_q:
                 log_file = save_content_to_file("\n".join(log_parts), run_folder, "generation_summary_log", "txt")
@@ -1803,6 +1826,7 @@ def main_page():
     # --- Main tabs ---
     with ui.tabs().classes('w-full') as main_tabs:
         mcq_tab = ui.tab('MCQ Development', icon='auto_stories')
+        prompt_diy_tab = ui.tab('Prompt DIY', icon='tune')
         image_rag_tab = ui.tab('Image RAG', icon='photo_library')
         difficulty_tab = ui.tab('Difficulty Model Training', icon='model_training')
 
@@ -1937,10 +1961,13 @@ def main_page():
                         ui_refs['stop_button'] = ui.button("Stop Generation", on_click=request_stop, icon='stop_circle').classes('w-1/2').props('color=negative')
                     ui_refs['generate_button'].bind_enabled_from(APP_STATE, 'is_generating', backward=lambda x: not x)
                     ui_refs['stop_button'].bind_visibility_from(APP_STATE, 'is_generating')
-                    ui_refs["progress_row"] = ui.row().classes('w-full items-center mt-2')
+                    ui_refs["progress_row"] = ui.card().classes('w-full mt-2 border border-blue-300 bg-blue-50')
                     with ui_refs["progress_row"]:
-                        ui_refs["step_progress"] = ui.linear_progress(value=0, show_value=False).classes('flex-grow')
-                        ui_refs["step_label"] = ui.label('').classes('ml-2 text-xs')
+                        ui_refs["generation_phase_label"] = ui.label('Generation in progress').classes('font-bold text-blue-900')
+                        ui.label('Overall progress').classes('text-xs text-gray-600')
+                        ui_refs["overall_progress"] = ui.linear_progress(value=0, show_value=True).classes('w-full')
+                        ui_refs["step_label"] = ui.label('').classes('text-sm')
+                        ui_refs["step_progress"] = ui.linear_progress(value=0, show_value=True).classes('w-full')
                     ui_refs["progress_row"].set_visibility(False)
                     ui_refs["status_text"] = ui.textarea(label="Status").props('readonly outlined rows=2').classes('w-full mt-2')
                     ui_refs["question_preview_area"] = ui.column().classes('w-full border p-2 rounded').style('height: 400px; overflow-y: auto;')
@@ -2046,33 +2073,104 @@ def main_page():
                                 ui_refs['model_selects']["Image Generation Model"].set_value(random.choice(i_models))
                         ui.button("Randomly Assign Models", on_click=random_assign, icon='shuffle').classes('w-full mt-4')
 
+                        with ui.dialog() as demo_progress_dialog, ui.card().classes('w-[560px] max-w-full'):
+                            ui.label('Testing Demo LLMs').classes('text-xl font-bold text-blue-900')
+                            demo_wait_label = ui.label('Please wait while MAID tests every NVIDIA model...').classes('text-base')
+                            demo_progress = ui.linear_progress(value=0, show_value=True).classes('w-full')
+                            demo_current = ui.label('').classes('text-sm text-gray-700')
+                            demo_log = ui.log(max_lines=20).classes('w-full h-48 border')
+                            demo_close = ui.button('Close', on_click=demo_progress_dialog.close, icon='close').classes('w-full')
+
                         async def fill_demo_llms():
                             api_key = DEFAULT_NVIDIA_DEMO_API_KEY
-                            ui.notify(f"Testing {len(NVIDIA_DEMO_MODELS)} NVIDIA models...", color='info', timeout=5000)
-                            results = await check_nvidia_demo_models(api_key)
+                            demo_progress.value = 0
+                            demo_wait_label.text = 'Please wait while MAID tests every NVIDIA model...'
+                            demo_current.text = f'0/{len(NVIDIA_DEMO_MODELS)} models tested'
+                            demo_log.clear()
+                            demo_close.set_visibility(False)
+                            demo_progress_dialog.open()
+
+                            def report_demo_progress(completed, total, result):
+                                config = result['config']
+                                status = 'Available' if result['healthy'] else 'Unavailable'
+                                try:
+                                    demo_progress.value = completed / total
+                                    demo_current.text = f'{completed}/{total}: {config["model_name"]} - {status}'
+                                    demo_log.push(f'{status}: {config["model_name"]}')
+                                except RuntimeError:
+                                    # The health checks may outlive a browser tab that was refreshed or closed.
+                                    pass
+
+                            results = await check_nvidia_demo_models(api_key, on_result=report_demo_progress)
                             healthy = [result['config'] for result in results if result['healthy']]
                             failed = [result for result in results if not result['healthy']]
                             if not healthy:
                                 details = '; '.join(f"{item['config']['model_name']}: {item['error']}" for item in failed)
                                 ui.notify(f"No NVIDIA demo model is available. {details}", color='negative', multi_line=True, timeout=15000)
+                                demo_wait_label.text = 'No demo models are currently available.'
+                                demo_close.set_visibility(True)
                                 return
                             demo_names = {config['name'] for config in healthy}
                             APP_STATE['saved_models_config'] = [
                                 config for config in APP_STATE.get('saved_models_config', [])
                                 if config.get('name') not in demo_names
                             ] + healthy
-                            update_model_ui()
                             text_roles = [role for role in ui_refs['model_selects'] if role != 'Image Generation Model']
                             assignments = assign_healthy_text_models([config['name'] for config in healthy], text_roles)
-                            for role, model_name in assignments.items():
-                                ui_refs['model_selects'][role].set_value(model_name)
-                            ui.notify(
-                                f"Loaded {len(healthy)} healthy NVIDIA models; {len(failed)} failed health checks.",
-                                color='positive',
-                                timeout=10000,
-                            )
+                            try:
+                                update_model_ui()
+                                for role, model_name in assignments.items():
+                                    ui_refs['model_selects'][role].set_value(model_name)
+                                ui.notify(
+                                    f"Loaded {len(healthy)} healthy NVIDIA models; {len(failed)} failed health checks.",
+                                    color='positive',
+                                    timeout=10000,
+                                )
+                                demo_wait_label.text = f'Ready: {len(healthy)} models loaded and assigned.'
+                                demo_current.text = f'{len(healthy)} available, {len(failed)} unavailable'
+                                demo_close.set_visibility(True)
+                            except RuntimeError:
+                                # The model results remain available in application state for new clients.
+                                pass
 
-                        ui.button("Fill with Demo LLMs", on_click=fill_demo_llms, icon='bolt').classes('w-full mt-2')
+                        ui.label('No API key required. Model testing may take 1-2 minutes.').classes('text-sm font-bold text-blue-800 mt-3')
+                        ui.button("Fill with Demo LLMs - No API Key Required", on_click=fill_demo_llms, icon='bolt').classes('w-full mt-2 text-lg').props('color=secondary unelevated')
+
+        with ui.tab_panel(prompt_diy_tab):
+            with ui.column().classes('w-full max-w-5xl mx-auto p-4 gap-3'):
+                ui.label('Prompt DIY').classes('text-2xl font-bold')
+                ui.label('Customize the system prompts used by each agent role. Saved prompts persist across restarts.').classes('text-gray-600')
+                prompt_defaults = {
+                    'writer_system': ('Writer', WRITER_SYSTEM_PROMPT),
+                    'reviewer_system': ('Reviewers', REVIEWER_SYSTEM_PROMPT),
+                    'editor_system': ('Editor', EDITOR_SYSTEM_PROMPT),
+                    'final_decision_system': ('Final Decision Editor', FINAL_DECISION_SYSTEM_PROMPT),
+                }
+                prompt_inputs = {}
+                for key, (label, default_prompt) in prompt_defaults.items():
+                    prompt_inputs[key] = ui.textarea(
+                        label=f'{label} System Prompt',
+                        value=APP_STATE.get('prompt_overrides', {}).get(key, default_prompt),
+                    ).props('outlined autogrow').classes('w-full font-mono')
+
+                def save_diy_prompts():
+                    values = {key: field.value.strip() for key, field in prompt_inputs.items()}
+                    APP_STATE['prompt_overrides'] = values
+                    save_prompt_settings(values, PROMPT_SETTINGS_FILE)
+                    ui.notify('Prompt settings saved and applied.', color='positive')
+
+                def reset_diy_prompts():
+                    values = {key: default for key, (_, default) in prompt_defaults.items()}
+                    for key, value in values.items():
+                        prompt_inputs[key].value = value
+                    APP_STATE['prompt_overrides'] = {}
+                    if PROMPT_SETTINGS_FILE.exists():
+                        PROMPT_SETTINGS_FILE.unlink()
+                    ui.notify('Default prompts restored.', color='info')
+
+                with ui.row().classes('w-full justify-end gap-2'):
+                    ui.button('Restore Defaults', on_click=reset_diy_prompts, icon='restart_alt').props('outline')
+                    ui.button('Save and Apply', on_click=save_diy_prompts, icon='save').props('color=primary')
 
         # Image RAG Tab
         with ui.tab_panel(image_rag_tab):

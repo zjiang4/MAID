@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from syllabus_catalog import BUILTIN_SYLLABUSES
-from syllabus_ui import replace_tree_nodes
+from syllabus_ui import hierarchy_to_tree_nodes, replace_tree_nodes
 
 
 def _leaves(node):
@@ -57,3 +57,16 @@ def test_tree_replacement_updates_nicegui_props_and_refreshes_component():
     assert tree.props["nodes"] == new_nodes
     assert tree.props["ticked"] == []
     assert tree.update_count == 1
+
+
+def test_tree_conversion_includes_list_items_as_selectable_leaves():
+    nodes = hierarchy_to_tree_nodes(
+        {"System": {"Topic Group": ["Specific Topic A", "Specific Topic B"]}}
+    )
+
+    topic_group = nodes[0]["children"][0]
+    assert [child["label"] for child in topic_group["children"]] == [
+        "Specific Topic A",
+        "Specific Topic B",
+    ]
+    assert all("children" not in child for child in topic_group["children"])

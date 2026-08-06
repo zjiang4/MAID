@@ -58,6 +58,7 @@ def test_nvidia_response_normalizes_reasoning_and_usage():
 
 def test_health_checks_isolate_failures_and_check_every_model():
     visited = []
+    progress = []
 
     async def checker(config):
         visited.append(config["model_name"])
@@ -69,11 +70,22 @@ def test_health_checks_isolate_failures_and_check_every_model():
         {"name": "good", "model_name": "good/model"},
         {"name": "bad", "model_name": "bad/model"},
     ]
-    results = asyncio.run(check_nvidia_demo_models("key", candidates, checker=checker))
+    results = asyncio.run(
+        check_nvidia_demo_models(
+            "key",
+            candidates,
+            checker=checker,
+            on_result=lambda completed, total, result: progress.append(
+                (completed, total, result["config"]["model_name"])
+            ),
+        )
+    )
 
     assert set(visited) == {"good/model", "bad/model"}
     assert [result["healthy"] for result in results] == [True, False]
     assert "temporarily unavailable" in results[1]["error"]
+    assert sorted(progress) == [(1, 2, progress[0][2]), (2, 2, progress[1][2])]
+    assert {entry[2] for entry in progress} == {"good/model", "bad/model"}
 
 
 def test_assignments_only_use_healthy_models():
