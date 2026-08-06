@@ -21,4 +21,7 @@ def test_windows_launcher_starts_hidden_waits_and_opens_browser():
     assert "maid_server.log" in source
     assert "127.0.0.1:8080" in source
     assert "Start-Process 'http://127.0.0.1:8080'" in source
+    assert "multi_agent_dev.py" in source
+    assert "Stop-Process" in source
+    assert "another application" in source
 

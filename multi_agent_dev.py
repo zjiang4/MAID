@@ -12,7 +12,6 @@ import functools
 import html
 import io
 import joblib
-import os
 import random
 import re
 import time
@@ -1282,6 +1281,9 @@ def serve_outputs():
 def main_page():
     app.add_static_files('/outputs', BASE_OUTPUT_DIR)
     ui.add_head_html("""<style>.soft-card{border-radius:12px;box-shadow:0 4px 16px rgba(0,0,0,.05);}</style>""")
+    ui.add_head_html(
+        f'<meta name="maid-nvidia-demo-key" content="{html.escape(DEFAULT_NVIDIA_DEMO_API_KEY)}">'
+    )
     initial_syllabus_name = APP_STATE.get("active_builtin_syllabus", DEFAULT_SYLLABUS_NAME)
     if initial_syllabus_name not in BUILTIN_SYLLABUSES:
         initial_syllabus_name = DEFAULT_SYLLABUS_NAME
@@ -2045,10 +2047,7 @@ def main_page():
                         ui.button("Randomly Assign Models", on_click=random_assign, icon='shuffle').classes('w-full mt-4')
 
                         async def fill_demo_llms():
-                            api_key = os.environ.get('NVIDIA_API_KEY', DEFAULT_NVIDIA_DEMO_API_KEY).strip()
-                            if not api_key:
-                                ui.notify("Set NVIDIA_API_KEY before loading demo models.", color='negative')
-                                return
+                            api_key = DEFAULT_NVIDIA_DEMO_API_KEY
                             ui.notify(f"Testing {len(NVIDIA_DEMO_MODELS)} NVIDIA models...", color='info', timeout=5000)
                             results = await check_nvidia_demo_models(api_key)
                             healthy = [result['config'] for result in results if result['healthy']]

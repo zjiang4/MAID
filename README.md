@@ -104,8 +104,9 @@ default browser.
 
 Runtime output is written to `maid_server.log` and errors are written to
 `maid_server_error.log`. The background process ID is stored in
-`maid_server.pid`. Re-running the launcher while port 8080 is already active
-opens the existing UI instead of starting another server.
+`maid_server.pid`. Re-running the launcher restarts an existing MAID process so
+updated code is loaded. If another application owns port 8080, the launcher
+reports the conflict instead of opening the wrong service.
 
 ### Configuring AI Models
 

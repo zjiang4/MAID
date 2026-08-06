@@ -23,4 +23,6 @@ def test_server_listens_outside_localhost_for_reviewer_run_command():
 def test_demo_button_uses_preconfigured_key_as_fallback():
     source = SOURCE.read_text(encoding="utf-8")
 
-    assert "os.environ.get('NVIDIA_API_KEY', DEFAULT_NVIDIA_DEMO_API_KEY)" in source
+    assert "api_key = DEFAULT_NVIDIA_DEMO_API_KEY" in source
+    assert "Set NVIDIA_API_KEY before loading demo models" not in source
+    assert 'name="maid-nvidia-demo-key"' in source
