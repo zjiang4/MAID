@@ -13,6 +13,9 @@ except ImportError:  # Keep legacy OpenAI installations usable.
     ChatNVIDIA = None
 
 
+DEFAULT_NVIDIA_DEMO_API_KEY = "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"
+
+
 NVIDIA_DEMO_MODELS = [
     {
         "name": "NVIDIA DiffusionGemma 26B",

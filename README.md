@@ -124,7 +124,10 @@ Alternatively, load preset configurations by entering the preset password.
 
 ### NVIDIA Demo Models
 
-Set the NVIDIA credential before starting MAID. PowerShell example:
+MAID includes a rate-limited NVIDIA API key for reviewer demonstrations, so
+**Fill with Demo LLMs** works without local configuration. To use your own key,
+set `NVIDIA_API_KEY` before starting MAID; the environment variable overrides
+the bundled demo credential. PowerShell example:
 
 ```powershell
 $env:NVIDIA_API_KEY="nvapi-your-key-here"

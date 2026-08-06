@@ -4,10 +4,16 @@ import pytest
 
 from model_providers import (
     AIModel,
+    DEFAULT_NVIDIA_DEMO_API_KEY,
     NVIDIA_DEMO_MODELS,
     assign_healthy_text_models,
     check_nvidia_demo_models,
 )
+
+
+def test_demo_api_key_is_preconfigured():
+    assert DEFAULT_NVIDIA_DEMO_API_KEY.startswith("nvapi-")
+    assert len(DEFAULT_NVIDIA_DEMO_API_KEY) > 20
 
 
 def test_missing_provider_defaults_to_openai():

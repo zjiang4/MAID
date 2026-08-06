@@ -18,3 +18,9 @@ def test_server_listens_outside_localhost_for_reviewer_run_command():
     source = SOURCE.read_text(encoding="utf-8")
 
     assert 'host="0.0.0.0"' in source
+
+
+def test_demo_button_uses_preconfigured_key_as_fallback():
+    source = SOURCE.read_text(encoding="utf-8")
+
+    assert "os.environ.get('NVIDIA_API_KEY', DEFAULT_NVIDIA_DEMO_API_KEY)" in source

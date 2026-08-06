@@ -43,6 +43,7 @@ from docx.shared import Inches, Pt
 
 from model_providers import (
     AIModel,
+    DEFAULT_NVIDIA_DEMO_API_KEY,
     NVIDIA_DEMO_MODELS,
     assign_healthy_text_models,
     check_nvidia_demo_models,
@@ -2044,7 +2045,7 @@ def main_page():
                         ui.button("Randomly Assign Models", on_click=random_assign, icon='shuffle').classes('w-full mt-4')
 
                         async def fill_demo_llms():
-                            api_key = os.environ.get('NVIDIA_API_KEY', '').strip()
+                            api_key = os.environ.get('NVIDIA_API_KEY', DEFAULT_NVIDIA_DEMO_API_KEY).strip()
                             if not api_key:
                                 ui.notify("Set NVIDIA_API_KEY before loading demo models.", color='negative')
                                 return
