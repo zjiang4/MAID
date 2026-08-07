@@ -385,7 +385,7 @@ class MCQDevelopmentSystem:
     def add_to_history(self, role: str, content: str, version: int = 1, usage: Optional[Dict] = None):
         entry = {
             "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "role": role, "content": content, "version": version
+            "role": role, "content": content, "version": version, "usage": usage
         }
         self.history.append(entry)
 
@@ -409,6 +409,30 @@ def save_content_to_file(content: str, folder: Path, base_name: str, extension: 
     file_path = folder / f"{base_name}_{timestamp}.{extension}"
     file_path.write_text(content, encoding='utf-8')
     return file_path
+
+
+def format_generation_history_log(question_number: int, keyword: str, history: List[Dict]) -> str:
+    lines = [
+        "=" * 80,
+        f"Question {question_number}: {keyword}",
+        "=" * 80,
+    ]
+    for index, entry in enumerate(history, start=1):
+        lines.extend([
+            "",
+            f"[{index}] {entry.get('role', 'Unknown Agent')}",
+            f"Timestamp: {entry.get('timestamp', 'N/A')}",
+            f"Version: {entry.get('version', 'N/A')}",
+        ])
+        usage = entry.get("usage")
+        if isinstance(usage, dict) and usage:
+            lines.append("Usage:")
+            lines.extend(f"  {key}: {value}" for key, value in usage.items())
+        lines.extend([
+            "Response:",
+            str(entry.get("content", "")),
+        ])
+    return "\n".join(lines)
 
 
 def convert_to_tree_nodes(hierarchical_data: dict, parent_key: str = '') -> List[Dict]:
@@ -1793,7 +1817,7 @@ def main_page():
                         gen_q.append({'number': success_count, 'text': final_q, 'image_path': q_img_path, 'image_prompt': q_img_prompt, 'chat_history': []})
                     report_html = generate_html_report_content(history, f"MCQ_{q_num}_Report", prompt_ctx, image_path=q_img_path)
                     save_content_to_file(report_html, reports_folder, f"mcq_{q_num}_report", "html")
-                    log_parts.append(f"--- Question {q_num} ('{item['keyword']}') report generated ---")
+                    log_parts.append(format_generation_history_log(q_num, item['keyword'], history))
             status_text.value = f"Done! Generated {success_count}/{total_q} questions."
             ui_refs["generation_phase_label"].text = f"Generation complete: {success_count}/{total_q} questions"
         except StopRequestedError:
