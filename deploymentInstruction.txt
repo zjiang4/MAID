@@ -63,6 +63,12 @@ computer on the same network by using the host computer's IP address.
 
 5. FIRST DEMONSTRATION WITHOUT AN API KEY
 -----------------------------------------
+Before starting, reviewers can watch the short walkthrough included at:
+
+    docs/MAID_demo.mp4
+
+The same video can be opened or downloaded directly from the GitHub repository.
+
 1. Open the MCQ Development tab.
 2. Choose either:
    - USMLE Step 1 (English)

@@ -4,6 +4,16 @@ An advanced AI-powered medical examination question generation and difficulty pr
 
 ![MAID Platform UI](MAID-UI.png)
 
+## Demo Video
+
+A short end-to-end usage demonstration is available here:
+
+**[Watch or download the MAID demo video](docs/MAID_demo.mp4)**
+
+The video shows the low-barrier demonstration workflow, including selecting a
+built-in syllabus, loading the bundled Demo LLMs without entering an API key,
+and starting item generation.
+
 ## Features
 
 ### 1. **Question Generation System**
